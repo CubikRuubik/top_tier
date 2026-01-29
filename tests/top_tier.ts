@@ -8,12 +8,60 @@ import { Keypair } from "@solana/web3.js";
 const userA = Keypair.generate();
 const userB = Keypair.generate();
 
-describe("top_tier", () => {
-  const title = "Some Entry";
+async function logLeaderBoard(leaderboard) {
+  for (let i = 0; i < leaderboard.count.toNumber(); i++) {
+    const entry = leaderboard.entries[i];
 
-  anchor.setProvider(anchor.AnchorProvider.env());
-  const provider = anchor.AnchorProvider.env();
-  const program = anchor.workspace.topTier as Program<TopTier>;
+    const entryData = await program.account.entry.fetch(entry.pubkey);
+    console.log(`#${i + 1}: },title: ${entryData.title}, score=${entry.score}`);
+  }
+}
+
+async function checkEntry(title: String) {
+  const [entryPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("entry"), Buffer.from(title)],
+    program.programId
+  );
+  const entry = await program.account.entry.fetch(entryPda);
+  // console.log("Title:", entry.title);
+  // console.log("URI:", entry.metadataUri);
+  // console.log("Score:", entry.score.toNumber());
+  // console.log("Creator:", entry.creator.toString());
+  return entry;
+}
+
+async function voteForEntry(title: String, leaderboardPda, user) {
+  const [entryPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("entry"), Buffer.from(title)],
+    program.programId
+  );
+
+  const [voteRecordPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("vote"), user.publicKey.toBuffer(), entryPda.toBuffer()],
+    program.programId
+  );
+
+  const tx = await program.methods
+    .vote()
+    .accounts({
+      leaderboard: leaderboardPda,
+      entry: entryPda,
+      voteRecord: voteRecordPda,
+      voter: user.publicKey,
+      systemProgram: anchor.web3.SystemProgram.programId,
+    } as any)
+    .signers([user])
+    .rpc();
+
+  return tx;
+}
+
+anchor.setProvider(anchor.AnchorProvider.env());
+const provider = anchor.AnchorProvider.env();
+const program = anchor.workspace.topTier as Program<TopTier>;
+
+describe("top_tier", () => {
+  const title = "Entry 0";
 
   it("Is initialized!", async () => {
     await provider.connection.requestAirdrop(userA.publicKey, 1e9);
@@ -21,97 +69,51 @@ describe("top_tier", () => {
     await program.methods.initialize().rpc();
   });
 
-  it("can add entries!", async () => {
+  it("can create entries!", async () => {
     const metadata = "https://example.com/metadata";
 
-    const metadataBytes = new TextEncoder().encode(metadata);
-    const titleBytes = new TextEncoder().encode(title);
+    // const metadataBytes = new TextEncoder().encode(metadata);
+    // const titleBytes = new TextEncoder().encode(title);
 
-    const fixedMetadataBytes = new Uint8Array(128); // To fixed-size [u8; 128]
-    const fixedTitleBytes = new Uint8Array(32); // To fixed-size [u8; 32]
-    fixedMetadataBytes.set(metadataBytes);
-    fixedTitleBytes.set(titleBytes);
-
-    const [leaderboardPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("leaderboard")],
-      program.programId
-    );
-
-    const tx = await program.methods
-      .addEntry([...fixedTitleBytes], [...fixedMetadataBytes])
-      .accounts({
-        leaderboard: leaderboardPda,
-        signer: userA.publicKey,
-      } as any) // TODO: ask why errors on type
-      .signers([userA])
-      .rpc();
-  });
-
-  it("can read entries!", async () => {
-    const [leaderboardPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("leaderboard")],
-      program.programId
-    );
-
-    const leaderboard = await program.account.leaderBoard.fetch(leaderboardPda);
-
-    // Decode entries
-    leaderboard.entries.forEach((entry, index) => {
-      if (entry.score > 0) {
-        // only show non-empty entries
-        const uri = new TextDecoder()
-          .decode(new Uint8Array(entry.metadataUri))
-          .replace(/\0/g, "");
-        console.log(`Entry ${index}: uri=${uri}, score=${entry.score}`);
-      }
-    });
-  });
-
-  it("can vote for entries!", async () => {
-    const titleBytes = new TextEncoder().encode(title);
-
-    const fixedTitleBytes = new Uint8Array(32);
-
-    fixedTitleBytes.set(titleBytes);
+    // const fixedMetadataBytes = new Uint8Array(128); // To fixed-size [u8; 128]
+    // const fixedTitleBytes = new Uint8Array(32); // To fixed-size [u8; 32]
+    // fixedMetadataBytes.set(metadataBytes);
+    // fixedTitleBytes.set(titleBytes);
 
     const [leaderboardPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("leaderboard")],
-      program.programId
-    );
-
-    const [voteRecordPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("vote"),
-        userB.publicKey.toBuffer(),
-        Buffer.from(fixedTitleBytes),
-      ],
       program.programId
     );
 
     await program.methods
-      .vote([...fixedTitleBytes])
+      .createEntry(title, metadata)
       .accounts({
         leaderboard: leaderboardPda,
-        voteRecord: voteRecordPda,
-        voter: userB.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      } as any)
-      .signers([userB])
+        creator: userA.publicKey,
+      } as any) // TODO: ask why errors on type
+      .signers([userA])
       .rpc();
 
-    const leaderboard = await program.account.leaderBoard.fetch(leaderboardPda);
+    const entry = await checkEntry(title);
 
-    leaderboard.entries.forEach((entry, index) => {
-      if (entry.score > 0) {
-        const uri = new TextDecoder()
-          .decode(new Uint8Array(entry.metadataUri))
-          .replace(/\0/g, "");
-        console.log(`Entry ${index}: uri=${uri}, score=${entry.score}`);
-      }
-    });
+    expect(entry.title).to.equal(title);
+    expect(entry.score.toNumber()).to.equal(0);
   });
 
-  it("errors in case leaderboard is full", async () => {
+  it("can vote for entries!", async () => {
+    const [leaderboardPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("leaderboard")],
+      program.programId
+    );
+
+    await voteForEntry(title, leaderboardPda, userA);
+
+    const entry = await checkEntry(title);
+
+    expect(entry.score.toNumber()).to.equal(1);
+  });
+
+  it("Entry can enter full leaderboard", async () => {
     const [leaderboardPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("leaderboard")],
       program.programId
@@ -121,93 +123,92 @@ describe("top_tier", () => {
       const metadata = `https://example.com/metadata${i}`;
       const titleForEntry = `Entry ${i}`;
 
-      const metadataBytes = new TextEncoder().encode(metadata);
-      const titleBytes = new TextEncoder().encode(titleForEntry);
-
-      const fixedMetadataBytes = new Uint8Array(128);
-      const fixedTitleBytes = new Uint8Array(32);
-      fixedMetadataBytes.set(metadataBytes);
-      fixedTitleBytes.set(titleBytes);
-
-      const tx = await program.methods
-        .addEntry([...fixedTitleBytes], [...fixedMetadataBytes])
-        .accounts({
-          leaderboard: leaderboardPda,
-          signer: userA.publicKey,
-        } as any)
-        .signers([userA])
-        .rpc();
-    }
-
-    const metadata = `https://example.com/metadata${33}`;
-    const titleForEntry = `Entry ${33}`;
-
-    const metadataBytes = new TextEncoder().encode(metadata);
-    const titleBytes = new TextEncoder().encode(titleForEntry);
-
-    const fixedMetadataBytes = new Uint8Array(128);
-    const fixedTitleBytes = new Uint8Array(32);
-    fixedMetadataBytes.set(metadataBytes);
-    fixedTitleBytes.set(titleBytes);
-
-    try {
       await program.methods
-        .addEntry([...fixedTitleBytes], [...fixedMetadataBytes])
+        .createEntry(titleForEntry, metadata)
         .accounts({
           leaderboard: leaderboardPda,
-          signer: userA.publicKey,
+          creator: userA.publicKey,
         } as any)
         .signers([userA])
         .rpc();
 
-      expect.fail("Should have thrown error");
-    } catch (err) {
-      expect(err.error.errorCode.code).to.equal("LeaderboardFull");
+      await voteForEntry(titleForEntry, leaderboardPda, userA);
     }
-  });
 
-  it("can sort entries", async () => {
-    const titleForEntry = "Entry 31";
-    const titleBytes = new TextEncoder().encode(titleForEntry);
+    let leaderboard = await program.account.leaderBoard.fetch(leaderboardPda);
+    const firstEntryBefore = leaderboard.entries[0];
 
-    const fixedTitleBytes = new Uint8Array(32);
-
-    fixedTitleBytes.set(titleBytes);
-
-    const [leaderboardPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("leaderboard")],
-      program.programId
+    const firstEntryBeforeData = await program.account.entry.fetch(
+      firstEntryBefore.pubkey
     );
+    expect(firstEntryBeforeData.title).to.equal("Entry 0"); // check if first entry in the list is the first one added
 
-    const [voteRecordPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("vote"),
-        userB.publicKey.toBuffer(),
-        Buffer.from(fixedTitleBytes),
-      ],
-      program.programId
-    );
+    const metadata33 = `https://example.com/metadata${33}`;
+    const titleForEntry33 = `Entry ${33}`;
 
     await program.methods
-      .vote([...fixedTitleBytes])
+      .createEntry(titleForEntry33, metadata33)
       .accounts({
         leaderboard: leaderboardPda,
-        voteRecord: voteRecordPda,
-        voter: userB.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        creator: userA.publicKey,
       } as any)
-      .signers([userB])
+      .signers([userA])
       .rpc();
 
-    const leaderboard = await program.account.leaderBoard.fetch(leaderboardPda);
+    await voteForEntry(titleForEntry33, leaderboardPda, userA);
+    await voteForEntry(titleForEntry33, leaderboardPda, userB);
 
-    leaderboard.entries.forEach((entry, index) => {
-      if (entry.score > 0) {
-        const uri = new TextDecoder()
-          .decode(new Uint8Array(entry.metadataUri))
-          .replace(/\0/g, "");
-        console.log(`Entry ${index}: uri=${uri}, score=${entry.score}`);
-      }
-    });
+    leaderboard = await program.account.leaderBoard.fetch(leaderboardPda);
+    const firstEntryAfter = leaderboard.entries[0];
+
+    const firstEntryAfterData = await program.account.entry.fetch(
+      firstEntryAfter.pubkey
+    );
+    expect(firstEntryAfterData.title).to.equal("Entry 33"); // check if first entry in the list is the last one added
   });
+
+  // it.skip("can sort entries", async () => {
+  //   const titleForEntry = "Entry 31";
+  //   const titleBytes = new TextEncoder().encode(titleForEntry);
+
+  //   const fixedTitleBytes = new Uint8Array(32);
+
+  //   fixedTitleBytes.set(titleBytes);
+
+  //   const [leaderboardPda] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("leaderboard")],
+  //     program.programId
+  //   );
+
+  //   const [voteRecordPda] = PublicKey.findProgramAddressSync(
+  //     [
+  //       Buffer.from("vote"),
+  //       userB.publicKey.toBuffer(),
+  //       Buffer.from(fixedTitleBytes),
+  //     ],
+  //     program.programId
+  //   );
+
+  //   await program.methods
+  //     .vote([...fixedTitleBytes])
+  //     .accounts({
+  //       leaderboard: leaderboardPda,
+  //       voteRecord: voteRecordPda,
+  //       voter: userB.publicKey,
+  //       systemProgram: anchor.web3.SystemProgram.programId,
+  //     } as any)
+  //     .signers([userB])
+  //     .rpc();
+
+  //   const leaderboard = await program.account.leaderBoard.fetch(leaderboardPda);
+
+  //   leaderboard.entries.forEach((entry, index) => {
+  //     if (entry.score > 0) {
+  //       const uri = new TextDecoder()
+  //         .decode(new Uint8Array(entry.metadataUri))
+  //         .replace(/\0/g, "");
+  //       console.log(`Entry ${index}: uri=${uri}, score=${entry.score}`);
+  //     }
+  //   });
+  // });
 });

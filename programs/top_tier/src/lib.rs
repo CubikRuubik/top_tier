@@ -15,11 +15,15 @@ pub mod top_tier {
         instructions::initialize::handler_initialize(ctx)
     }
 
-    pub fn add_entry(ctx: Context<AddEntry>, hash: [u8; 32], metadata: [u8; 128]) -> Result<()> {
-        instructions::add_entry::handler_add_entry(ctx, hash, metadata)
+    pub fn create_entry(
+        ctx: Context<CreateEntry>,
+        title: String,
+        metadata_uri: String,
+    ) -> Result<()> {
+        instructions::create_entry::handler_create_entry(ctx, title, metadata_uri)
     }
 
-    pub fn vote(ctx: Context<Vote>, hash: [u8; 32]) -> Result<()> {
-        instructions::vote::handler_vote(ctx, hash)
+    pub fn vote(ctx: Context<Vote>) -> Result<()> {
+        instructions::vote::handler_vote(ctx)
     }
 }
