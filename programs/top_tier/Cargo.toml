@@ -21,13 +21,10 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = "0.32.1"
-solana-program = "3.0.0"
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+bytemuck = "1.14"
+solana-keccak-hasher = "3.1.0"
 
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
-
-[patch.crates-io]
-base64ct = "=1.6.0"
-constant_time_eq = "=0.3.5"

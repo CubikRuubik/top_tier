@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-top_tier = "7Lb9bsMfaYyrpiaqPzL83YXYqzbbAqe7FUcMEQybGq5f"
+top_tier = "575YdJj5F2sKDWbHaDCfv7NfpDF7c9CTeYd4qu1eYGtp"
 
 [registry]
 url = "https://api.apr.dev"
